@@ -1,0 +1,4 @@
+# Cleanup endpoint placeholder
+# This endpoint would handle player cleanup when browsers close unexpectedly
+# In production, this would be implemented as a serverless function
+# that processes the sendBeacon requests from beforeunload events
