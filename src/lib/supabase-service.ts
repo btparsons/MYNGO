@@ -9,20 +9,25 @@ export class SupabaseService {
   // Create a new room
   static async createRoom(hostId: string, config: RoomConfig): Promise<MyngoRoom> {
     console.log('📡 Creating room with config:', config);
+    console.log('🔧 Supabase URL:', import.meta.env.VITE_SUPABASE_URL);
+    console.log('🔧 Supabase Key exists:', !!import.meta.env.VITE_SUPABASE_ANON_KEY);
     
     // Ensure default values are set
     const roomConfig = {
       ...config,
       autoCall: {
-        enabled: false,  // Default to auto-call mode
+        enabled: config.autoCall?.enabled ?? false,  // Use provided value or default to false
         ...config.autoCall
       },
       isPaused: false  // Default to not paused
     };
     
+    console.log('🔧 Final room config before creation:', roomConfig);
+    
     const roomCode = generateRoomCode();
     console.log('🎲 Generated room code:', roomCode);
     
+    try {
     const { data, error } = await supabase
       .from('rooms')
       .insert({
@@ -36,6 +41,12 @@ export class SupabaseService {
 
     if (error) {
       console.error('❌ Failed to create room:', error);
+      console.error('❌ Error details:', {
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code
+      });
       throw new Error(`Failed to create room: ${error.message}`);
     }
 
@@ -44,7 +55,8 @@ export class SupabaseService {
     // Create initial game history record with proper nullable handling
     // CRITICAL: Create initial game history record - if this fails, room creation fails
     console.log('📊 Creating initial game history record for room:', roomCode);
-    await this.createGameHistoryRecord({
+    try {
+      await this.createGameHistoryRecord({
       room_code: roomCode,
       players_start: 0, // Start with 0, will be updated as players join
       players_end: null, // Nullable - will be set when game ends
@@ -54,10 +66,25 @@ export class SupabaseService {
       ending_status: 'active',
       balls_called_count: 0,
       is_demo_game: roomConfig.demoMode || false
-    });
+      });
+    } catch (historyError) {
+      console.error('❌ Failed to create game history record:', historyError);
+      // Clean up the room if history creation fails
+      try {
+        await supabase.from('rooms').delete().eq('id', data.id);
+        console.log('🧹 Cleaned up room after history creation failure');
+      } catch (cleanupError) {
+        console.error('❌ Failed to cleanup room after history error:', cleanupError);
+      }
+      throw new Error(`Failed to create game history: ${historyError.message}`);
+    }
     console.log('✅ Initial game history record created successfully');
 
     return data;
+    } catch (outerError) {
+      console.error('❌ Outer error in createRoom:', outerError);
+      throw outerError;
+    }
   }
 
   // Get room by code

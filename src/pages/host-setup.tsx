@@ -62,6 +62,11 @@ export function HostSetup() {
     setError(null);
     
     try {
+      console.log('🏗️ Environment check:', {
+        supabaseUrl: import.meta.env.VITE_SUPABASE_URL,
+        hasAnonKey: !!import.meta.env.VITE_SUPABASE_ANON_KEY
+      });
+      
       // Create room in Supabase
       const hostId = `host_${Date.now()}`;
       const roomConfig = {
@@ -69,7 +74,7 @@ export function HostSetup() {
         meetingDuration: settings.meetingDuration,
         demoMode: settings.demoMode,
         autoCall: {
-          enabled: true // Explicitly set to true for default auto-call mode
+          enabled: true // Set to true as intended
         },
         isPaused: false,  // Initialize pause state
         autoClose: true,
@@ -78,11 +83,26 @@ export function HostSetup() {
       };
 
       console.log('🏗️ Creating room with autoCall.enabled = true:', roomConfig);
+      
+      // Test Supabase connection first
+      console.log('🔍 Testing Supabase connection...');
+      const { data: testData, error: testError } = await supabase
+        .from('rooms')
+        .select('count')
+        .limit(1);
+      
+      if (testError) {
+        console.error('❌ Supabase connection test failed:', testError);
+        throw new Error(`Database connection failed: ${testError.message}`);
+      }
+      console.log('✅ Supabase connection test passed');
+      
       const room = await SupabaseService.createRoom(hostId, roomConfig);
       console.log('🏗️ Room created successfully:', room);
       
       // Validate room creation
       if (!room || !room.id || !room.code) {
+        console.error('❌ Invalid room data structure:', room);
         throw new Error('Invalid room data received from server');
       }
       
@@ -91,7 +111,13 @@ export function HostSetup() {
       // Add demo bots if enabled
       if (settings.demoMode) {
         console.log('🏗️ Adding demo bots...');
-        await SupabaseService.addDemoBots(room.id);
+        try {
+          await SupabaseService.addDemoBots(room.id);
+          console.log('✅ Demo bots added successfully');
+        } catch (botError) {
+          console.error('⚠️ Failed to add demo bots (non-critical):', botError);
+          // Don't fail room creation if bot addition fails
+        }
       }
 
       // Micro confetti burst
@@ -104,7 +130,21 @@ export function HostSetup() {
       setStep(3);
     } catch (error) {
       console.error('🏗️ Failed to create room:', error);
-      setError('Failed to create room. Please try again.');
+      console.error('🏗️ Error stack:', error.stack);
+      
+      // Provide more specific error messages
+      let errorMessage = 'Failed to create room. Please try again.';
+      if (error.message.includes('Database connection failed')) {
+        errorMessage = 'Unable to connect to the database. Please check your internet connection and try again.';
+      } else if (error.message.includes('Invalid room data')) {
+        errorMessage = 'Room was created but data is incomplete. Please try again.';
+      } else if (error.message.includes('Failed to create game history')) {
+        errorMessage = 'Room created but failed to initialize game tracking. Please try again.';
+      } else if (error.message) {
+        errorMessage = `Error: ${error.message}`;
+      }
+      
+      setError(errorMessage);
     } finally {
       setIsCreating(false);
     }
